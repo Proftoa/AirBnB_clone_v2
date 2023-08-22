@@ -1,81 +1,75 @@
 #!/usr/bin/python3
-"""Deploy web static package
-"""
-from fabric.api import *
+# Fabric script to creates and distributes an archive to your web servers, using the function deploy()
+import os
 from datetime import datetime
-from os import path
+from fabric.api import local, run, env, put
 
-
-env.hosts = ['18.209.20.255', '34.73.76.135']
-env.user = 'ubuntu'
-env.key_filename = '~/.ssh/id_rsa'
+env.hosts = ["100.24.255.26", "100.26.219.214"]
 
 
 def do_pack():
-        """Function to compress directory
-        Return: path to archive on success; None on fail
-        """
-        # Get current time
-        now = datetime.now()
-        now = now.strftime('%Y%m%d%H%M%S')
-        archive_path = 'versions/web_static_' + now + '.tgz'
-
-        # Create archive
-        local('mkdir -p versions/')
-        result = local('tar -cvzf {} web_static/'.format(archive_path))
-
-        # Check if archiving was successful
-        if result.succeeded:
-                return archive_path
-        return None
-
+    """ Creates a tar-generated `gzip` archive of web_static folder """
+    dt = datetime.now()
+    a_file = "versions/web_static_{}{}{}{}{}{}.tgz".format(dt.year,
+                                                           dt.month,
+                                                           dt.day,
+                                                           dt.hour,
+                                                           dt.minute,
+                                                           dt.second)
+    """ create directory `versions` if it doesnt exist """
+    if os.path.isdir("versions") is False:
+        # create directory on local machine without error if failed
+        if local("mkdir -p versions").failed is True: 
+            return None 
+    # create gzip file using `tar` command 
+    if local("tar -czvf {} web_static".format(a_file)).failed is True:
+        return None 
+    return a_file
 
 def do_deploy(archive_path):
-        """Deploy web files to server
-        """
-        try:
-                if not (path.exists(archive_path)):
-                        return False
+    try:
+        if not os.path.isfile(archive_path):
+            return False
 
-                # upload archive
-                put(archive_path, '/tmp/')
+        # Upload archive to `/tmp/` on the web server
+        put(archive_path, "/tmp/")
 
-                # create target dir
-                timestamp = archive_path[-18:-4]
-                run('sudo mkdir -p /data/web_static/\
-releases/web_static_{}/'.format(timestamp))
+        # Extract filename without extension
+        archive_name = os.path.basename(archive_path)
+        fname = archive_name.split(".")[0]
 
-                # uncompress archive and delete .tgz
-                run('sudo tar -xzf /tmp/web_static_{}.tgz -C \
-/data/web_static/releases/web_static_{}/'
-                    .format(timestamp, timestamp))
+        # Create a new directory on the server
+        server_dir = "/data/web_static/releases/{}".format(fname)
+        run("mkdir -p {}".format(server_dir))
 
-                # remove archive
-                run('sudo rm /tmp/web_static_{}.tgz'.format(timestamp))
+        # Uncompress archive to a new directory on the same server
+        run("tar -xzf /tmp/{} -C {}".format(archive_name, server_dir))
 
-                # move contents into host web_static
-                run('sudo mv /data/web_static/releases/web_static_{}/web_static/* \
-/data/web_static/releases/web_static_{}/'.format(timestamp, timestamp))
+        # Delete archive from the old directory ('/tmp/')
+        run("rm -rf /tmp/{}".format(archive_name))
 
-                # remove extraneous web_static dir
-                run('sudo rm -rf /data/web_static/releases/\
-web_static_{}/web_static'
-                    .format(timestamp))
+        # Move content out of the sub-folder
+        run("sudo mv /data/web_static/releases/{}/web_static/* "
+            "/data/web_static/releases/{}/".format(fname, fname))
 
-                # delete pre-existing sym link
-                run('sudo rm -rf /data/web_static/current')
+        # Remove the now empty web_static dir
+        run("sudo rm -rf /data/web_static/releases/{}/web_static/"
+            .format(fname))
 
-                # re-establish symbolic link
-                run('sudo ln -s /data/web_static/releases/\
-web_static_{}/ /data/web_static/current'.format(timestamp))
-        except:
-                return False
+        # Delete existing symbolic link
+        run("rm /data/web_static/current")
 
-        # return True on success
+        # Create a new symbolic link to link to the new file in server_dir
+        run("ln -s {} /data/web_static/current".format(server_dir))
+
         return True
+
+    except Exception:
+        return False
 
 
 def deploy():
-        """Deploy web static
-        """
-        return do_deploy(do_pack())
+    """ creates and distributes an archive to the web servers """
+    path = do_pack()
+    if not path:
+        return False

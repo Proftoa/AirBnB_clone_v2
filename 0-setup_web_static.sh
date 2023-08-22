@@ -1,22 +1,47 @@
 #!/usr/bin/env bash
-# Set up server file system for deployment
+# Script that sets up web servers for deployment of web_static
 
-# install nginx
-sudo apt-get -y update
-sudo apt-get -y install nginx
-sudo service nginx start
+sudo apt-get update
+sudo apt-get install -y nginx
 
-# configure file system
+sudo mkdir -p /data/web_static/releases/test/ # -p create parent dir
 sudo mkdir -p /data/web_static/shared/
-sudo mkdir -p /data/web_static/releases/test/
-echo "Holberton School" | sudo tee /data/web_static/releases/test/index.html > /dev/null
+echo "<html>
+  <head>
+  </head>
+  <body>
+    Holberton School
+  </body>
+</html>" > /data/web_static/releases/test/index.html
+
 sudo ln -sf /data/web_static/releases/test/ /data/web_static/current
 
-# set permissions
 sudo chown -R ubuntu:ubuntu /data/
 
-# configure nginx
-sudo sed -i '44i \\n\tlocation /hbnb_static {\n\t\talias /data/web_static/current/;\n\t}' /etc/nginx/sites-available/default
+# append to nginx config file the ffg in server block section using alias
+# to serve the content of data/.../current to hbtn_static
 
-# restart web server
+printf %s "server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    add_header X-Served-By $HOSTNAME;
+    root   /var/www/html;
+    index  index.html index.htm;
+
+    location /hbnb_static {
+        alias /data/web_static/current;
+        index index.html index.htm;
+    }
+
+    location /redirect_me {
+        return 301 https://google.com/;
+    }
+
+    error_page 404 /404.html;
+    location /404 {
+      root /var/www/html;
+      internal;
+    }
+}" > /etc/nginx/sites-available/default
+
 sudo service nginx restart
